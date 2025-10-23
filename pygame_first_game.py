@@ -70,10 +70,11 @@ class Player:
         self.dash_duration = 0
         self.dash_max_duration = 300  # 5 seconds at 60 FPS
         self.dash_cooldown = 0
-        self.dash_cooldown_max = 30  # 0.5 seconds at 60 FPS
+        self.dash_cooldown_max = 45  # 0.75 seconds at 60 FPS
         self.is_dashing = False
         self.dash_time = 0
-        self.dash_time_max = 15  # 0.25 seconds dash
+        self.dash_time_max = 30  # 0.5 seconds dash (doubled from 15)
+        self.dash_speed_boost = 8  # Extra forward movement during dash
 
         # Powerup activation particles
         self.powerup_particles = []
@@ -193,13 +194,17 @@ class Player:
             self.dash_time -= 1
             if self.dash_time <= 0:
                 self.is_dashing = False
-            # Create dash trail
-            if random.random() < 0.3:
+            # Boost forward during dash
+            self.x += self.dash_speed_boost
+            # Create enhanced dash trail with streaks
+            if random.random() < 0.8:  # More frequent trails
                 self.dash_trail.append({
                     'x': self.x + self.width / 2,
                     'y': self.y + self.height / 2,
-                    'life': 20,
-                    'size': random.randint(8, 15)
+                    'life': 30,  # Longer lasting
+                    'size': random.randint(10, 20),
+                    'vx': random.uniform(-3, -1),  # Streak backward
+                    'vy': random.uniform(-2, 2)
                 })
 
         # Update dash cooldown
@@ -261,16 +266,24 @@ class Player:
         # Update dash trail
         for t in self.dash_trail[:]:
             t['life'] -= 1
+            t['x'] += t.get('vx', 0)
+            t['y'] += t.get('vy', 0)
             if t['life'] <= 0:
                 self.dash_trail.remove(t)
 
     def draw(self, screen):
-        # Draw dash trail
+        # Draw dash trail with streaks
         for t in self.dash_trail:
-            alpha = t['life'] / 20
+            alpha = t['life'] / 30
             size = int(t['size'] * alpha)
             if size > 0:
-                pygame.draw.circle(screen, DASH_COLOR, (int(t['x']), int(t['y'])), size)
+                # Draw streak effect with gradient
+                for i in range(3):
+                    streak_size = size - i * 2
+                    if streak_size > 0:
+                        color_alpha = int(255 * alpha * (1 - i * 0.3))
+                        color = (255, 165, 0) if color_alpha > 128 else (255, 200, 100)
+                        pygame.draw.circle(screen, color, (int(t['x'] + i * 5), int(t['y'])), streak_size)
 
         # Draw powerup particles
         for p in self.powerup_particles:
@@ -404,8 +417,12 @@ class GolfCart:
 
     def update(self, player_x):
         # Follow player, staying slightly behind
+        # Slower catch-up speed when far away
+        distance_to_target = (player_x - 150) - self.x
+        catch_up_speed = 0.02 if abs(distance_to_target) > 200 else 0.05
+
         self.target_x = player_x - 150
-        self.x += (self.target_x - self.x) * 0.05
+        self.x += (self.target_x - self.x) * catch_up_speed
 
         # Animations
         self.wheel_rotation += SCROLL_SPEED * 2
@@ -634,6 +651,86 @@ class ParticleEffect:
         return len(self.particles) == 0
 
 
+def draw_boston_skyline(screen, scroll_offset):
+    """Draw a simplified Boston skyline in the background"""
+    skyline_y = GROUND_Y - 50
+
+    # Buildings move slower than foreground (parallax effect)
+    parallax_offset = (scroll_offset * 0.3) % WIDTH
+
+    # Define Boston-inspired buildings
+    buildings = [
+        # Hancock Tower (tallest)
+        {'x': 100, 'w': 60, 'h': 200, 'color': (70, 90, 120), 'windows': True},
+        # Prudential Tower
+        {'x': 180, 'w': 50, 'h': 180, 'color': (80, 100, 130), 'windows': True},
+        # Small building
+        {'x': 240, 'w': 35, 'h': 100, 'color': (90, 110, 140), 'windows': True},
+        # Custom House Tower (with spire)
+        {'x': 290, 'w': 40, 'h': 140, 'color': (75, 95, 125), 'windows': True, 'spire': True},
+        # Medium building
+        {'x': 340, 'w': 45, 'h': 120, 'color': (85, 105, 135), 'windows': True},
+        # State Street building
+        {'x': 395, 'w': 55, 'h': 160, 'color': (65, 85, 115), 'windows': True},
+        # Small building
+        {'x': 460, 'w': 30, 'h': 90, 'color': (95, 115, 145), 'windows': True},
+        # Federal Reserve
+        {'x': 500, 'w': 50, 'h': 130, 'color': (70, 90, 120), 'windows': True},
+        # Wide building
+        {'x': 560, 'w': 65, 'h': 110, 'color': (80, 100, 130), 'windows': True},
+        # Tall narrow
+        {'x': 635, 'w': 35, 'h': 170, 'color': (75, 95, 125), 'windows': True},
+        # Medium
+        {'x': 680, 'w': 40, 'h': 125, 'color': (85, 105, 135), 'windows': True},
+        # Short wide
+        {'x': 730, 'w': 50, 'h': 95, 'color': (90, 110, 140), 'windows': True},
+    ]
+
+    # Draw buildings twice for seamless scrolling
+    for offset in [-WIDTH, 0, WIDTH]:
+        for building in buildings:
+            x = building['x'] - parallax_offset + offset
+            if x < -building['w'] or x > WIDTH + building['w']:
+                continue
+
+            y = skyline_y - building['h']
+
+            # Draw building body
+            pygame.draw.rect(screen, building['color'],
+                             (x, y, building['w'], building['h']))
+
+            # Draw darker outline
+            pygame.draw.rect(screen, (50, 60, 80),
+                             (x, y, building['w'], building['h']), 2)
+
+            # Draw windows if specified
+            if building.get('windows'):
+                window_color = (200, 220, 255, 100)
+                window_w = 4
+                window_h = 6
+                spacing_x = 8
+                spacing_y = 10
+
+                for wy in range(int(y + 10), int(y + building['h'] - 5), spacing_y):
+                    for wx in range(int(x + 6), int(x + building['w'] - 6), spacing_x):
+                        # Random lit windows
+                        if random.random() > 0.3:
+                            pygame.draw.rect(screen, window_color,
+                                             (wx, wy, window_w, window_h))
+
+            # Draw spire for Custom House Tower
+            if building.get('spire'):
+                spire_w = 12
+                spire_h = 30
+                spire_x = x + building['w'] // 2 - spire_w // 2
+                spire_y = y - spire_h
+                pygame.draw.polygon(screen, (100, 120, 150), [
+                    (spire_x + spire_w // 2, spire_y),
+                    (spire_x, spire_y + spire_h),
+                    (spire_x + spire_w, spire_y + spire_h)
+                ])
+
+
 def main():
     player = Player()
     golf_cart = GolfCart()
@@ -648,6 +745,7 @@ def main():
     powerup_timer = 0
     dash_powerup_timer = 0
     distance = 0
+    camera_offset = 0  # Track camera position for dash
 
     font = pygame.font.Font(None, 36)
     small_font = pygame.font.Font(None, 24)
@@ -679,11 +777,33 @@ def main():
                     powerup_timer = 0
                     dash_powerup_timer = 0
                     distance = 0
+                    camera_offset = 0
                     game_over = False
 
         if not game_over:
+            # Store previous player x position
+            prev_player_x = player.x
+
             player.update()
             distance += SCROLL_SPEED
+
+            # If player moved forward from dash, adjust camera and world
+            if player.is_dashing:
+                dash_movement = player.x - prev_player_x - player.dash_speed_boost
+                camera_offset += dash_movement
+
+                # Move player back to normal position but shift everything else
+                player.x = prev_player_x
+
+                # Shift all world objects backward to create illusion of forward movement
+                for enemy in enemies:
+                    enemy.x -= player.dash_speed_boost
+                for coin in coins:
+                    coin.x -= player.dash_speed_boost
+                for powerup in powerups:
+                    powerup.x -= player.dash_speed_boost
+                for dash_powerup in dash_powerups:
+                    dash_powerup.x -= player.dash_speed_boost
 
             golf_cart.update(player.x)
 
@@ -772,6 +892,9 @@ def main():
 
         # Draw
         screen.fill(SKY_BLUE)
+
+        # Draw Boston skyline
+        draw_boston_skyline(screen, distance)
 
         pygame.draw.rect(screen, GROUND_COLOR, (0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y))
         pygame.draw.line(screen, (80, 160, 80), (0, GROUND_Y), (WIDTH, GROUND_Y), 3)
