@@ -653,7 +653,8 @@ class ParticleEffect:
 
 def draw_boston_skyline(screen, scroll_offset):
     """Draw a simplified Boston skyline in the background"""
-    skyline_y = GROUND_Y - 50
+    # Buildings now start from ground level
+    skyline_y = GROUND_Y
 
     # Buildings move slower than foreground (parallax effect)
     parallax_offset = (scroll_offset * 0.3) % WIDTH
@@ -893,8 +894,9 @@ def main():
         # Draw
         screen.fill(SKY_BLUE)
 
-        # Draw Boston skyline
-        draw_boston_skyline(screen, distance)
+        # Draw Boston skyline only after reaching 1500 distance
+        if distance >= 15000:
+            draw_boston_skyline(screen, distance)
 
         pygame.draw.rect(screen, GROUND_COLOR, (0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y))
         pygame.draw.line(screen, (80, 160, 80), (0, GROUND_Y), (WIDTH, GROUND_Y), 3)
