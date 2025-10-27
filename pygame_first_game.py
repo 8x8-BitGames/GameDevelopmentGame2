@@ -10,6 +10,7 @@ FPS = 60
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 SKY_BLUE = (135, 206, 235)
+SUNSET_SKY = (255, 140, 100)  # Warm sunset color
 GROUND_COLOR = (100, 200, 100)
 PLAYER_COLOR = (50, 150, 255)
 ENEMY_COLOR = (255, 50, 50)
@@ -651,9 +652,121 @@ class ParticleEffect:
         return len(self.particles) == 0
 
 
-def draw_boston_skyline(screen, scroll_offset):
+def lerp_color(color1, color2, t):
+    """Linear interpolation between two colors"""
+    t = max(0, min(1, t))  # Clamp t between 0 and 1
+    return (
+        int(color1[0] + (color2[0] - color1[0]) * t),
+        int(color1[1] + (color2[1] - color1[1]) * t),
+        int(color1[2] + (color2[2] - color1[2]) * t)
+    )
+
+
+def draw_gradient_sky(screen, distance):
+    """Draw sky with gradient effect"""
+    # Start transitioning at 12000, complete by 15000
+    transition_start = 12000
+    transition_end = 15000
+
+    if distance < transition_start:
+        # Clear blue sky
+        screen.fill(SKY_BLUE)
+    elif distance >= transition_end:
+        # Full sunset gradient: pink at top, orange in middle, blue at bottom
+        for y in range(HEIGHT):
+            progress = y / HEIGHT
+            if progress < 0.3:
+                # Top third: pink to orange
+                local_progress = progress / 0.3
+                color = lerp_color((255, 150, 200), (255, 140, 100), local_progress)
+            elif progress < 0.6:
+                # Middle third: orange to light blue
+                local_progress = (progress - 0.3) / 0.3
+                color = lerp_color((255, 140, 100), (150, 180, 220), local_progress)
+            else:
+                # Bottom third: light blue to darker blue
+                local_progress = (progress - 0.6) / 0.4
+                color = lerp_color((150, 180, 220), (100, 150, 200), local_progress)
+            pygame.draw.line(screen, color, (0, y), (WIDTH, y))
+    else:
+        # Transition from blue to gradient
+        transition_progress = (distance - transition_start) / (transition_end - transition_start)
+
+        for y in range(HEIGHT):
+            progress = y / HEIGHT
+            # Target gradient colors
+            if progress < 0.3:
+                local_progress = progress / 0.3
+                target_color = lerp_color((255, 150, 200), (255, 140, 100), local_progress)
+            elif progress < 0.6:
+                local_progress = (progress - 0.3) / 0.3
+                target_color = lerp_color((255, 140, 100), (150, 180, 220), local_progress)
+            else:
+                local_progress = (progress - 0.6) / 0.4
+                target_color = lerp_color((150, 180, 220), (100, 150, 200), local_progress)
+
+            # Interpolate from SKY_BLUE to target gradient color
+            color = lerp_color(SKY_BLUE, target_color, transition_progress)
+            pygame.draw.line(screen, color, (0, y), (WIDTH, y))
+
+
+def draw_sun(screen, distance):
+    """Draw sun that sets as distance increases"""
+    # Sun is visible from 0 to 15000
+    # At 0: sun is high in sky
+    # At 15000: sun is at horizon (half visible)
+
+    if distance > 15000:
+        return
+
+    # Calculate sun position
+    # Start high, end at horizon
+    start_y = 100  # High in sky
+    end_y = GROUND_Y  # At horizon
+
+    progress = min(distance / 15000, 1.0)
+    sun_y = start_y + (end_y - start_y) * progress
+    sun_x = WIDTH - 150  # Fixed x position on right side
+    sun_radius = 50
+
+    # Draw sun glow
+    for i in range(5):
+        glow_radius = sun_radius + (5 - i) * 10
+        alpha = 50 - i * 10
+        glow_color = (255, 220, 100)
+        pygame.draw.circle(screen, glow_color, (int(sun_x), int(sun_y)), glow_radius)
+
+    # Draw main sun
+    pygame.draw.circle(screen, (255, 230, 100), (int(sun_x), int(sun_y)), sun_radius)
+    pygame.draw.circle(screen, (255, 200, 50), (int(sun_x), int(sun_y)), sun_radius - 5)
+
+    # If sun is at/below horizon, clip it
+    if sun_y >= GROUND_Y - sun_radius:
+        # Create a surface to clip the sun
+        clip_rect = pygame.Rect(0, 0, WIDTH, GROUND_Y)
+        screen.set_clip(clip_rect)
+        # Sun already drawn above, just need to re-establish clipping
+        screen.set_clip(None)
+
+
+def draw_boston_skyline(screen, scroll_offset, distance):
     """Draw a simplified Boston skyline in the background"""
-    # Buildings now start from ground level
+    # Buildings start appearing from the right at distance 15000
+    # and are fully in view by distance 17000
+    skyline_appear_start = 15000
+    skyline_appear_end = 17000
+
+    # Calculate how much of the skyline should be visible
+    if distance < skyline_appear_start:
+        return  # Don't draw anything yet
+
+    # Calculate offset to slide buildings in from the right
+    if distance < skyline_appear_end:
+        appear_progress = (distance - skyline_appear_start) / (skyline_appear_end - skyline_appear_start)
+        slide_offset = WIDTH * (1 - appear_progress)  # Start at WIDTH, move to 0
+    else:
+        slide_offset = 0  # Fully visible, no offset
+
     skyline_y = GROUND_Y
 
     # Buildings move slower than foreground (parallax effect)
@@ -690,7 +803,7 @@ def draw_boston_skyline(screen, scroll_offset):
     # Draw buildings twice for seamless scrolling
     for offset in [-WIDTH, 0, WIDTH]:
         for building in buildings:
-            x = building['x'] - parallax_offset + offset
+            x = building['x'] - parallax_offset + offset + slide_offset
             if x < -building['w'] or x > WIDTH + building['w']:
                 continue
 
@@ -892,11 +1005,14 @@ def main():
                     particles.remove(particle)
 
         # Draw
-        screen.fill(SKY_BLUE)
+        # Draw gradient sky based on distance
+        draw_gradient_sky(screen, distance)
 
-        # Draw Boston skyline only after reaching 1500 distance
-        if distance >= 15000:
-            draw_boston_skyline(screen, distance)
+        # Draw sun (before buildings)
+        draw_sun(screen, distance)
+
+        # Draw Boston skyline with slide-in effect
+        draw_boston_skyline(screen, distance, distance)
 
         pygame.draw.rect(screen, GROUND_COLOR, (0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y))
         pygame.draw.line(screen, (80, 160, 80), (0, GROUND_Y), (WIDTH, GROUND_Y), 3)
